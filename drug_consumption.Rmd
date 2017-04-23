@@ -4,6 +4,9 @@ author: "John Curcio"
 date: "April 22, 2017"
 output: html_document
 ---
+
+# Dataset Summary 
+
 ```{r, include=FALSE}
 df <- read.table("http://archive.ics.uci.edu/ml/machine-learning-databases/00373/drug_consumption.data", sep = ",")
 names(df) <- c(
@@ -43,7 +46,7 @@ names(df) <- c(
 
 This dataset can be downloaded from the [UCI Machine Learning Repository](http://archive.ics.uci.edu/ml/datasets/Drug+consumption+%28quantified%29#). It contains records for 1885 respondents. For each respondent, personality attributes are collected, as well as demographic stuff like age, education, etc. In addition, participants were questioned concerning their use of 18 legal and illegal drugs - everything from caffeine and chocolate to crack and ketamine. Also, one fictitious drug (Semeron) which was introduced to identify over-claimers (lol). 
 
-Attribute Information:
+## Attribute Information:
 
 1. ID is number of record in original database. Cannot be related to participant. It can be used for reference only. 
 
@@ -110,43 +113,13 @@ Value Meaning Cases Fraction
 
 13. SS (Real) is sensation seeing measured by ImpSS. 
 
-14. Alcohol is class of alcohol consumption.
-
-15. Amphet is class of amphetamines consumption.
-
-16. Amyl is class of amyl nitrite consumption. 
-
-17. Benzos is class of benzodiazepine consumption.
-
-18. Caff is class of caffeine consumption. 
-
-19. Cannabis is class of cannabis consumption.
-
-20. Choc is class of chocolate consumption. 
-
-21. Coke is class of cocaine consumption. 
-
-22. Crack is class of crack consumption. 
-
-23. Ecstasy is class of ecstasy consumption.
-
-24. Heroin is class of heroin consumption. 
-
-25. Ketamine is class of ketamine consumption.
-
-26. Legalh is class of legal highs consumption.
-
-27. LSD is class of alcohol consumption.
-
-28. Meth is class of methadone consumption. 
-
-29. Mushrooms is class of magic mushrooms consumption. 
-
-30. Nicotine is class of nicotine consumption. 
+14 - 30: Alcohol, Amphet, Benzos, Caff, Cannabis, Chocolate, Cocaine, Crack, Ecstasy, Heroin, Ketamine, "Legal Highs", LSD, Meth, Mushrooms, Nicotine,
 
 31. Semer is class of fictitious drug Semeron consumption.
 
 32. VSA is class of volatile substance abuse consumption. 
+
+# Some Quick Cleaning
 
 Inclusion of the fictional drug "Semeron", encoded in the dataset as `Semer`, was pretty clever. I'll remove all respondents who claim to have used Semeron, because they've proven themselves to be totally unreliable.
 
@@ -157,11 +130,11 @@ df <- df[which(df$Semer == "CL0"),]
 df$ID <- NULL
 ```
 
+# Logistic Regression
+
 For now, I'll just use logistic regression to predict use of nicotine at least as recently as last month (`CL4` to `CL6`, inclusive).
 
-I've decided to ignore `Country` and use of other drugs. While they're *extremely* important and insightful variables, I'm just exploring right now.
-
-Ignoring: Country, Ethnicity
+I've decided to ignore `Country`, `Ethnicity`, and use of other drugs. While they're *extremely* important and insightful variables, I'm just exploring right now.
 
 ```{r}
 train.rows <- sample(c(1:nrow(df)), 1000)
@@ -193,9 +166,11 @@ trainacc
 testacc
 ```
 
-Not bad. Even *more* encouraging is the fact that the test and train accuracy scores are quite similar. Our model doesn't seem to be overfitting to the training data at all - it's generalizing well! Repeating this partitioning of train and test data (called "cross-validation") would give us a better idea of whether this is just a fluke or not.
+Not bad. Even *more* encouraging is the fact that the test and train accuracy scores are quite similar. Our model doesn't seem to be overfitting to the training data at all - it's generalizing well! Repeating this partitioning of train and test data (called "cross-validation") would give us a better idea of whether this is just a fluke or not. 
 
-Anyway, I'm sure we can get better accuracy through some feature engineering. The origninal dataset comes with some very bizarre encodings of values (for example, if I recall correctly, `Age` is encoded as 0.48246 for men and -0.4826 for women). They might have been useful choices for the researchers who published this data, but my approach might benefit by encoding them differently.
+# Simple Feature Engineering
+
+I'm sure we can get better accuracy through some feature engineering. The origninal dataset comes with some very bizarre encodings of values (for example, if I recall correctly, `Age` is encoded as 0.48246 for men and -0.4826 for women). They might have been useful choices for the researchers who published this data, but my approach might benefit by encoding them differently.
 
 I'll do this by re-encoding the use of each drug to real values. I'm not sure exactly how the possible values should scale, but I'm certain that drug use is very much an *ordinal* variable.
 ```{r}
@@ -242,12 +217,15 @@ for(i in c(1:length(drugnames))){
 }
 ```
 
-Now that the data has been re-encoded, we're ready to fit our second model, `mod2`.
+# Logistic Regression Again
+Now that the data has been re-encoded, we're ready to fit our second model, `mod2`. It's just logistic regression again, except we've introduced new predictor variables.
+
+I'm still ignoring `Country` and `Ethnicity`. Reason is they're not ordinal variables, they're purely categorical. Including them would increase the degrees of freedom (complexity) in our model, but each's distribution of values is very skewed (e.g. well over 90% white). We wouldn't be able to be very confident in their respective weights.
 
 ```{r}
 train.rows <- sample(c(1:nrow(df.recoded)), 1000)
 train.df <- df.recoded[train.rows,]
-mod2 <- glm(Nicotine ~ ., #"." is a shortcut for "all other predictors"
+mod2 <- glm(Nicotine ~ . - Country - Ethnicity, #"." is a shortcut for "all other predictors"
            data = train.df, family=binomial)
 
 #get train accuracy
@@ -268,18 +246,20 @@ Obviously, looking at respondents' use of other drugs *is* going to be useful in
 
 The logistic model assumes that there's no collinearity between predictors, when really there probably is some strong relationship between predictors. For example, older people are more likely to have higher education, and people who do mushrooms are more likely to do LSD than they are to do meth (I assume).
 
+# Random Forest
+
 A better method might be random forest. Random Forest is an ensemble method where a forest consists of a large number of decision trees, which are generated through a random process. The trees in a random forest tend to be much "deeper" than regular decision trees, but their large number and diversity corrects for the overfitting that would otherwise be expected.
 
 There's a nice implementation in the `randomForest` package in R. We'll use it to train our third model, `mod3`.
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(randomForest)
-mod3 <- randomForest(as.factor(Nicotine) ~ ., data = train.df, 
+mod3 <- randomForest(as.factor(Nicotine) ~ . - Country - Ethnicity, data = train.df, 
                      # importance=T,
                      # mtry=2,
                      ntree=1000)
 ```
 
-Okay, believe me: there's a *lot* more complexity to random forests than a single function call in R. But this is useful for some quick and dirty analysis. 
+Okay, believe me: there's a *lot* more complexity to random forests than a single function call in R. But this is useful for some quick and dirty analysis.
 
 ```{r}
 #get train accuracy
